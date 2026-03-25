@@ -2,3 +2,5 @@
 photon.csv
 neutron.csv
 data_preprocess.ipynb
+*.keras
+view_waveform.ipynb
