@@ -3,4 +3,7 @@ photon.csv
 neutron.csv
 data_preprocess.ipynb
 *.keras
+hyperparam_results.csv
 view_waveform.ipynb
+*.out
+*.log
