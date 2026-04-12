@@ -55,11 +55,16 @@ def baseline_subtract(waveforms: np.ndarray) -> np.ndarray:
     return (baselines - wf) * V_PER_ADC
 
 
-def euclidean_normalize(waveforms: np.ndarray) -> np.ndarray:
-    """Euclidean-normalize each waveform (Eq. 1 in Jinia et al.)."""
-    norms = np.linalg.norm(waveforms, axis=1, keepdims=True)
-    norms[norms == 0] = 1.0
-    return waveforms / norms
+def euclidean_normalize(waveforms: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Euclidean-normalize each waveform and return (normalized, norms).
+
+    The returned norms array lets you invert the normalization later:
+        waveforms_raw = waveforms_normalized * norms[:, None]
+    This is useful for converting reconstructions back to voltage scale.
+    """
+    norms = np.linalg.norm(waveforms, axis=1)
+    safe = np.where(norms == 0, 1.0, norms)
+    return waveforms / safe[:, None], norms
 
 
 def extract_features(wf_v: np.ndarray) -> pd.DataFrame:
@@ -107,19 +112,21 @@ def main(data_dir: Path, out_path: Path) -> None:
     X = X[shuffle_idx]
     y = y[shuffle_idx]
 
-    X_euclidean = euclidean_normalize(X)
+    X_euclidean, X_norms = euclidean_normalize(X)
 
     print(f"Saving to {out_path} ...")
     np.savez_compressed(
         out_path,
         X_voltage=X,
         X_euclidean=X_euclidean,
+        X_norms=X_norms,
         y=y,
         time_ns=time_axis(),
     )
 
     print(f"  X_voltage:   {X.shape}  (baseline-subtracted, positive-going, volts)")
     print(f"  X_euclidean: {X_euclidean.shape}  (Euclidean-normalized)")
+    print(f"  X_norms:     {X_norms.shape}  (original L2 norms, for recovery to volts)")
     print(f"  y:           {y.shape}  (0=photon, 1=neutron)")
     print(f"  Photon: {(y == 0).sum():,}  |  Neutron: {(y == 1).sum():,}  |  Total: {len(y):,}")
 

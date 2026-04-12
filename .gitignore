@@ -5,3 +5,6 @@ neutron.csv
 view_waveform.ipynb
 *.out
 *.log
+figures/
+l2_explainer.py
+inspect_npz.py

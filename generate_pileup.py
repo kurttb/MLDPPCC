@@ -48,11 +48,15 @@ def generate_pileup(
 
     Returns
     -------
-    pileup_wf : (n_pileup, 104) pileup waveforms in volts
+    pileup_wf : (n_pileup, 104) combined pileup waveforms in volts
+    primary_component : (n_pileup, 104) the primary pulse (unshifted)
+    secondary_component : (n_pileup, 104) the secondary pulse (shifted by delay)
     primary_label : (n_pileup,) particle type of the first pulse (0 or 1)
     secondary_label : (n_pileup,) particle type of the second pulse (0 or 1)
     delays : (n_pileup,) delay in samples applied to the second pulse
     clean_indices : sorted array of indices into X that were NOT used (clean singles)
+
+    Note: primary_component + secondary_component == pileup_wf by construction.
     """
     rng = np.random.default_rng(seed)
     N = X.shape[0]
@@ -75,9 +79,17 @@ def generate_pileup(
         DELAY_MIN_SAMPLES, DELAY_MAX_SAMPLES + 1, size=n_pileup
     ).astype(np.int16)
 
+    # Build pileup waveforms AND save the individual components as separation targets.
+    # primary_component[j] = the primary pulse (unshifted, full 104 samples)
+    # secondary_component[j] = the secondary pulse shifted by delays[j] samples
+    #   (zeros before the delay, then the pulse — as it appears in the pileup)
+    # By construction: pileup_wf = primary_component + secondary_component
     pileup_wf = X[pri_indices].copy().astype(np.float32)
+    primary_component = X[pri_indices].copy().astype(np.float32)
+    secondary_component = np.zeros((n_pileup, SAMPLES_PER_PULSE), dtype=np.float32)
     for j in range(n_pileup):
         d = delays[j]
+        secondary_component[j, d:] = X[sec_indices[j], :SAMPLES_PER_PULSE - d]
         pileup_wf[j, d:] += X[sec_indices[j], :SAMPLES_PER_PULSE - d]
 
     primary_label = y[pri_indices].astype(np.int8)
@@ -86,11 +98,14 @@ def generate_pileup(
     # Shuffle the output order
     shuffle = rng.permutation(n_pileup)
     pileup_wf = pileup_wf[shuffle]
+    primary_component = primary_component[shuffle]
+    secondary_component = secondary_component[shuffle]
     primary_label = primary_label[shuffle]
     secondary_label = secondary_label[shuffle]
     delays = delays[shuffle]
 
-    return pileup_wf, primary_label, secondary_label, delays, clean_indices
+    return (pileup_wf, primary_component, secondary_component,
+            primary_label, secondary_label, delays, clean_indices)
 
 
 def main(input_path: Path, output_path: Path) -> None:
@@ -111,14 +126,16 @@ def main(input_path: Path, output_path: Path) -> None:
     print(f"  Delay range: {DELAY_MIN_NS}–{DELAY_MAX_NS} ns "
           f"({DELAY_MIN_SAMPLES}–{DELAY_MAX_SAMPLES} samples)")
 
-    pileup_wf, primary_label, secondary_label, delays, clean_indices = \
-        generate_pileup(X, y)
+    (pileup_wf, primary_component, secondary_component,
+     primary_label, secondary_label, delays, clean_indices) = generate_pileup(X, y)
 
     print(f"\nGenerated {pileup_wf.shape[0]:,} pileup events")
     print(f"Saving to {output_path} ...")
     np.savez_compressed(
         output_path,
         pileup_wf=pileup_wf,
+        primary_component=primary_component,
+        secondary_component=secondary_component,
         primary_label=primary_label,
         secondary_label=secondary_label,
         delays_samples=delays,
@@ -126,11 +143,13 @@ def main(input_path: Path, output_path: Path) -> None:
         time_ns=data["time_ns"],
     )
 
-    print(f"  pileup_wf:       {pileup_wf.shape}")
-    print(f"  primary_label:   {primary_label.shape}  (0=photon, 1=neutron)")
-    print(f"  secondary_label: {secondary_label.shape}")
-    print(f"  delays_samples:  {delays.shape}  (range {delays.min()}–{delays.max()} samples)")
-    print(f"  clean_indices:   {clean_indices.shape}  (singles safe to use)")
+    print(f"  pileup_wf:            {pileup_wf.shape}")
+    print(f"  primary_component:    {primary_component.shape}  (target for separator decoder 1)")
+    print(f"  secondary_component:  {secondary_component.shape}  (target for separator decoder 2)")
+    print(f"  primary_label:        {primary_label.shape}  (0=photon, 1=neutron)")
+    print(f"  secondary_label:      {secondary_label.shape}")
+    print(f"  delays_samples:       {delays.shape}  (range {delays.min()}–{delays.max()} samples)")
+    print(f"  clean_indices:        {clean_indices.shape}  (singles safe to use)")
 
     # Summary of pair types
     pair_counts = {}
