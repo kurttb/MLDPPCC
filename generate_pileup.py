@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 # ── CAEN V1730 constants ─────────────────────────────────────────────────────
 NS_PER_SAMPLE = 2.0       # 500 MS/s
@@ -108,40 +109,95 @@ def generate_pileup(
             primary_label, secondary_label, delays, clean_indices)
 
 
+def save_combined_example_plot(
+    delay_ns_list: list,
+    pileup_wf: np.ndarray,
+    primary_component: np.ndarray,
+    secondary_component: np.ndarray,
+    primary_label: np.ndarray,
+    secondary_label: np.ndarray,
+    delays: np.ndarray,
+    time_ns: np.ndarray,
+    out_path: Path,
+) -> None:
+    """Plot example pileups at the requested delays side-by-side in one figure."""
+    label_map = {0: "photon", 1: "neutron"}
+    n = len(delay_ns_list)
+    fig, axes = plt.subplots(1, n, figsize=(5 * n, 5), sharey=True)
+    if n == 1:
+        axes = [axes]
+
+    for ax, delay_ns in zip(axes, delay_ns_list):
+        target_samples = int(round(delay_ns / NS_PER_SAMPLE))
+        matches = np.where(delays == target_samples)[0]
+        if len(matches) == 0:
+            ax.set_title(f"{delay_ns:g} ns — no match")
+            continue
+        j = int(matches[0])
+        ax.plot(time_ns, primary_component[j],
+                label=f"primary ({label_map[int(primary_label[j])]})", alpha=0.7)
+        ax.plot(time_ns, secondary_component[j],
+                label=f"secondary ({label_map[int(secondary_label[j])]})", alpha=0.7)
+        ax.plot(time_ns, pileup_wf[j], label="pileup (sum)", color="black", linewidth=1.5)
+        ax.set_title(f"{delay_ns:g} ns delay ({target_samples} samples)")
+        ax.set_xlabel("Time (ns)")
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=8)
+
+    axes[0].set_ylabel("Voltage")
+    fig.suptitle("Example Pileup Waveforms")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved {out_path}")
+
+
 def main(input_path: Path, output_path: Path) -> None:
     print(f"Loading single-pulse data from {input_path} ...")
     data = np.load(input_path)
-    X = data["X_voltage"]
-    y = data["y"]
-    N = X.shape[0]
 
-    n_clean = N // 3
-    n_source = N - n_clean
-    n_pileup = n_source // 2
+    if output_path.exists():
+        print(f"\n{output_path} already exists — skipping generation, loading existing file for plots.")
+        existing = np.load(output_path)
+        pileup_wf = existing["pileup_wf"]
+        primary_component = existing["primary_component"]
+        secondary_component = existing["secondary_component"]
+        primary_label = existing["primary_label"]
+        secondary_label = existing["secondary_label"]
+        delays = existing["delays_samples"]
+        clean_indices = existing["clean_indices"]
+    else:
+        X = data["X_voltage"]
+        y = data["y"]
+        N = X.shape[0]
 
-    print(f"Total singles: {N:,}")
-    print(f"  Clean singles (1/3): {n_clean:,}")
-    print(f"  Pileup source (2/3): {n_source:,}")
-    print(f"  Pileups to generate: {n_pileup:,}")
-    print(f"  Delay range: {DELAY_MIN_NS}–{DELAY_MAX_NS} ns "
-          f"({DELAY_MIN_SAMPLES}–{DELAY_MAX_SAMPLES} samples)")
+        n_clean = N // 3
+        n_source = N - n_clean
+        n_pileup = n_source // 2
 
-    (pileup_wf, primary_component, secondary_component,
-     primary_label, secondary_label, delays, clean_indices) = generate_pileup(X, y)
+        print(f"Total singles: {N:,}")
+        print(f"  Clean singles (1/3): {n_clean:,}")
+        print(f"  Pileup source (2/3): {n_source:,}")
+        print(f"  Pileups to generate: {n_pileup:,}")
+        print(f"  Delay range: {DELAY_MIN_NS}–{DELAY_MAX_NS} ns "
+              f"({DELAY_MIN_SAMPLES}–{DELAY_MAX_SAMPLES} samples)")
 
-    print(f"\nGenerated {pileup_wf.shape[0]:,} pileup events")
-    print(f"Saving to {output_path} ...")
-    np.savez_compressed(
-        output_path,
-        pileup_wf=pileup_wf,
-        primary_component=primary_component,
-        secondary_component=secondary_component,
-        primary_label=primary_label,
-        secondary_label=secondary_label,
-        delays_samples=delays,
-        clean_indices=clean_indices,
-        time_ns=data["time_ns"],
-    )
+        (pileup_wf, primary_component, secondary_component,
+         primary_label, secondary_label, delays, clean_indices) = generate_pileup(X, y)
+
+        print(f"\nGenerated {pileup_wf.shape[0]:,} pileup events")
+        print(f"Saving to {output_path} ...")
+        np.savez_compressed(
+            output_path,
+            pileup_wf=pileup_wf,
+            primary_component=primary_component,
+            secondary_component=secondary_component,
+            primary_label=primary_label,
+            secondary_label=secondary_label,
+            delays_samples=delays,
+            clean_indices=clean_indices,
+            time_ns=data["time_ns"],
+        )
 
     print(f"  pileup_wf:            {pileup_wf.shape}")
     print(f"  primary_component:    {primary_component.shape}  (target for separator decoder 1)")
@@ -150,6 +206,16 @@ def main(input_path: Path, output_path: Path) -> None:
     print(f"  secondary_label:      {secondary_label.shape}")
     print(f"  delays_samples:       {delays.shape}  (range {delays.min()}–{delays.max()} samples)")
     print(f"  clean_indices:        {clean_indices.shape}  (singles safe to use)")
+
+    # Save a combined example plot showing three different delays side-by-side
+    figures_dir = output_path.parent / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    combined_path = figures_dir / "example_pileups.png"
+    print(f"\nSaving combined example pileup plot to {combined_path} ...")
+    save_combined_example_plot(
+        [4, 16, 40], pileup_wf, primary_component, secondary_component,
+        primary_label, secondary_label, delays, data["time_ns"], combined_path,
+    )
 
     # Summary of pair types
     pair_counts = {}

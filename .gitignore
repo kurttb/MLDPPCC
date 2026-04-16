@@ -2,6 +2,7 @@
 photon.csv
 neutron.csv
 *.keras
+trial_checkpoints/
 view_waveform.ipynb
 *.out
 *.log
