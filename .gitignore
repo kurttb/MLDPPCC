@@ -9,3 +9,6 @@ view_waveform.ipynb
 figures/
 l2_explainer.py
 inspect_npz.py
+*.zip
+best_models_archive/
+Figures/

@@ -1,20 +1,7 @@
-"""Generate synthetic pileup waveforms from preprocessed single-pulse data.
+"""Generate synthetic pileup waveforms from single-pulse data
 
 Usage:
     python generate_pileup.py [processed_waveforms.npz] [output.npz]
-
-Defaults:
-    input:  processed_waveforms.npz
-    output: pileup_waveforms.npz
-
-Partitions the singles into two disjoint pools:
-  - Pool A (2/3): source material consumed by pileup generation
-  - Pool B (1/3): clean singles never touched by pileup generation
-
-Each pileup uses exactly 2 unique singles (no waveform reused anywhere).
-Source waveforms are randomly paired, so the pair type (nn, ng, gn, gg)
-follows the natural neutron/photon ratio in the data.
-The number of pileups equals len(Pool B) for a 50/50 balance downstream.
 """
 
 import sys
@@ -23,11 +10,26 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
-# ── CAEN V1730 constants ─────────────────────────────────────────────────────
+# plt.rcParams.update({
+#     "text.usetex": True,
+#     "font.family": "serif",
+#     "font.serif": ["Computer Modern"],
+#     "font.size": 16,
+#     "axes.labelsize": 12,
+#     "axes.titlesize": 14,
+#     "xtick.labelsize": 12,
+#     "ytick.labelsize": 12,
+#     "legend.fontsize": 14,
+#     "figure.figsize": (8, 6),
+#     "savefig.dpi": 400,
+# })
+
+
+# CAEN V1730 constants
 NS_PER_SAMPLE = 2.0       # 500 MS/s
 SAMPLES_PER_PULSE = 104
 
-# ── Pileup generation parameters ─────────────────────────────────────────────
+# Pileup generation parameters
 DELAY_MIN_NS = 4.0
 DELAY_MAX_NS = 50.0
 DELAY_MIN_SAMPLES = int(np.ceil(DELAY_MIN_NS / NS_PER_SAMPLE))   # 2
@@ -39,52 +41,28 @@ def generate_pileup(
     y: np.ndarray,
     seed: int = 123,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Generate synthetic pileup waveforms using a strict no-reuse partition.
-
-    Parameters
-    ----------
-    X : (N, 104) voltage waveforms
-    y : (N,) labels — 0=photon, 1=neutron
-    seed : random seed
-
-    Returns
-    -------
-    pileup_wf : (n_pileup, 104) combined pileup waveforms in volts
-    primary_component : (n_pileup, 104) the primary pulse (unshifted)
-    secondary_component : (n_pileup, 104) the secondary pulse (shifted by delay)
-    primary_label : (n_pileup,) particle type of the first pulse (0 or 1)
-    secondary_label : (n_pileup,) particle type of the second pulse (0 or 1)
-    delays : (n_pileup,) delay in samples applied to the second pulse
-    clean_indices : sorted array of indices into X that were NOT used (clean singles)
-
-    Note: primary_component + secondary_component == pileup_wf by construction.
-    """
+    """Generate pileups with no waveform reuse"""
     rng = np.random.default_rng(seed)
     N = X.shape[0]
 
-    # ── Partition into clean (1/3) and pileup-source (2/3) ──────────────────
+    # Split into clean singles and source singles
     all_idx = rng.permutation(N)
     n_clean = N // 3
     clean_indices = np.sort(all_idx[:n_clean])
     source_indices = all_idx[n_clean:]
 
-    # ── Pair source waveforms ───────────────────────────────────────────────
-    # Shuffle source and take consecutive pairs: (0,1), (2,3), ...
+    # Pair source waveforms
     rng.shuffle(source_indices)
     n_pileup = len(source_indices) // 2  # use all available pairs
     pri_indices = source_indices[0 : 2 * n_pileup : 2]   # even positions
     sec_indices = source_indices[1 : 2 * n_pileup : 2]   # odd positions
 
-    # ── Build pileup waveforms ──────────────────────────────────────────────
+    # Build pileup waveforms
     delays = rng.integers(
         DELAY_MIN_SAMPLES, DELAY_MAX_SAMPLES + 1, size=n_pileup
     ).astype(np.int16)
 
-    # Build pileup waveforms AND save the individual components as separation targets.
-    # primary_component[j] = the primary pulse (unshifted, full 104 samples)
-    # secondary_component[j] = the secondary pulse shifted by delays[j] samples
-    #   (zeros before the delay, then the pulse — as it appears in the pileup)
-    # By construction: pileup_wf = primary_component + secondary_component
+    # Keep the two components as reconstruction targets
     pileup_wf = X[pri_indices].copy().astype(np.float32)
     primary_component = X[pri_indices].copy().astype(np.float32)
     secondary_component = np.zeros((n_pileup, SAMPLES_PER_PULSE), dtype=np.float32)
@@ -120,7 +98,7 @@ def save_combined_example_plot(
     time_ns: np.ndarray,
     out_path: Path,
 ) -> None:
-    """Plot example pileups at the requested delays side-by-side in one figure."""
+    """Plot example pileups for selected delays"""
     label_map = {0: "photon", 1: "neutron"}
     n = len(delay_ns_list)
     fig, axes = plt.subplots(1, n, figsize=(5 * n, 5), sharey=True)
@@ -207,7 +185,7 @@ def main(input_path: Path, output_path: Path) -> None:
     print(f"  delays_samples:       {delays.shape}  (range {delays.min()}–{delays.max()} samples)")
     print(f"  clean_indices:        {clean_indices.shape}  (singles safe to use)")
 
-    # Save a combined example plot showing three different delays side-by-side
+    # Save example pileups at three delays
     figures_dir = output_path.parent / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
     combined_path = figures_dir / "example_pileups.png"

@@ -28,34 +28,14 @@ neutron/gamma
 
 ## Setup
 
-### 1. Preprocessing
-
-Place `photon.csv` and `neutron.csv` in a directory, then:
-
-```bash
-python preprocess.py path/to/Raw_Labelled_Waveforms
-```
-
-Produces `processed_waveforms.npz` containing baseline-subtracted voltage waveforms (`X_voltage`), L2-normalized waveforms (`X_euclidean`), per-waveform L2 norms (`X_norms`), and labels.
-
-### 2. Synthetic pileup generation
-
-```bash
-python generate_pileup.py
-```
-
-Produces `pileup_waveforms.npz` from `processed_waveforms.npz`. Partitions singles into a source pool (2/3) and clean pool (1/3). Each pileup uses two unique source waveforms with a random delay (4-50 ns). Saves the combined pileup, individual component waveforms (for separation training), labels, and delays.
-
-### 3. Training
-
-Run the notebooks in order. All use the `tf-blackwell` conda environment.
+See `python-venv-instructions.txt` for setup and environment instructions.
 
 ## File Guide
 
 ### Preprocessing scripts
 | File | Description |
 |------|-------------|
-| `preprocess.py` | Raw CSVs → `processed_waveforms.npz` (baseline subtract, L2 normalize) |
+| `preprocess.py` | Raw CSVs → `processed_waveforms.npz` |
 | `generate_pileup.py` | Synthetic pileup generation with ground-truth component waveforms |
 
 ### C1 — Single vs Pileup Classifier (BiLSTM)
@@ -91,7 +71,7 @@ Run the notebooks in order. All use the `tf-blackwell` conda environment.
 
 ### Normalization
 
-All classification models use **L2 (Euclidean) normalization** — each waveform is divided by its L2 norm, stripping amplitude and forcing the network to classify on shape only (following Jinia et al. Eq. 1). The separator (A2) uses **raw voltage** because separation requires amplitude information.
+The final notebook uses **per-waveform MinMax normalization**. Each waveform is scaled to [0, 1] using its own minimum and maximum.
 
 ### Key references
 

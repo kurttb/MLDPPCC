@@ -1,10 +1,7 @@
-"""Preprocess raw CAEN V1730 waveform CSVs into a labeled .npz dataset.
+"""Preprocess raw waveform CSVs into a labeled NPZ dataset
 
 Usage:
-    python preprocess.py path/to/Raw_Labelled_Waveforms
-
-Expects the directory to contain ``photon.csv`` and ``neutron.csv``.
-Outputs ``processed_waveforms.npz`` in the current directory.
+    python preprocess.py path/to/Raw_Labelled_Waveforms [output.npz]
 """
 
 import sys
@@ -13,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# ── CAEN V1730 digitizer constants (Jinia et al., IEEE Access 2021) ──────────
+# CAEN V1730 constants
 
 SAMPLE_RATE_HZ = 500e6          # 500 MS/s
 ADC_BITS = 14
@@ -25,50 +22,37 @@ BASELINE_SAMPLES = 8            # first 16 ns used for baseline
 TAIL_START_SAMPLE = 25          # ~50 ns — start of tail integration window
 
 
-# ── I/O ──────────────────────────────────────────────────────────────────────
+# I/O
 
 def load_waveforms(path: Path) -> np.ndarray:
-    """Load a raw CSV and return array of shape (n_waveforms, 104).
-
-    Rows in the CSV are time samples; columns are waveforms — so we transpose.
-    """
+    """Load a raw CSV as an array of shape (n_waveforms, 104)"""
     raw = pd.read_csv(path, header=None).to_numpy(dtype=np.int16)
     return raw.T
 
 
 def time_axis() -> np.ndarray:
-    """Return the time axis in nanoseconds for one pulse window."""
+    """Return the pulse time axis in nanoseconds"""
     return np.arange(SAMPLES_PER_PULSE) * NS_PER_SAMPLE
 
 
-# ── Preprocessing ────────────────────────────────────────────────────────────
+# Preprocessing
 
 def baseline_subtract(waveforms: np.ndarray) -> np.ndarray:
-    """Baseline-subtract, flip polarity, and convert to volts.
-
-    1. Per-waveform baseline = mean of first BASELINE_SAMPLES samples.
-    2. Flip polarity (negative-going → positive-going).
-    3. Scale ADC counts to volts.
-    """
+    """Subtract the baseline, flip polarity, and convert to volts"""
     wf = waveforms.astype(np.float32)
     baselines = wf[:, :BASELINE_SAMPLES].mean(axis=1, keepdims=True)
     return (baselines - wf) * V_PER_ADC
 
 
 def euclidean_normalize(waveforms: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Euclidean-normalize each waveform and return (normalized, norms).
-
-    The returned norms array lets you invert the normalization later:
-        waveforms_raw = waveforms_normalized * norms[:, None]
-    This is useful for converting reconstructions back to voltage scale.
-    """
+    """Euclidean-normalize each waveform and return the norms"""
     norms = np.linalg.norm(waveforms, axis=1)
     safe = np.where(norms == 0, 1.0, norms)
     return waveforms / safe[:, None], norms
 
 
 def extract_features(wf_v: np.ndarray) -> pd.DataFrame:
-    """Extract PSD features: pulse height, total/tail integral, PSD ratio."""
+    """Extract PSD features"""
     pulse_height = wf_v.max(axis=1)
     total_integral = wf_v.sum(axis=1)
     tail_integral = wf_v[:, TAIL_START_SAMPLE:].sum(axis=1)
@@ -80,7 +64,7 @@ def extract_features(wf_v: np.ndarray) -> pd.DataFrame:
     })
 
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+# Main
 
 def main(data_dir: Path, out_path: Path) -> None:
     photon_path = data_dir / "photon.csv"
@@ -104,7 +88,7 @@ def main(data_dir: Path, out_path: Path) -> None:
     X = np.concatenate([photon_v, neutron_v], axis=0)
     y = np.concatenate([
         np.zeros(photon_v.shape[0], dtype=np.int8),   # 0 = photon
-        np.ones(neutron_v.shape[0], dtype=np.int8),    # 1 = neutron
+        np.ones(neutron_v.shape[0], dtype=np.int8),   # 1 = neutron
     ])
 
     rng = np.random.default_rng(42)
