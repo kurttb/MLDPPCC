@@ -1,2 +1,0 @@
-rank,lstm_units,n_lstm_layers,dense_units,dropout,learning_rate,batch_size,optimizer,val_acc,test_acc,val_test_gap
-1,64,2,64,0.1,0.002,256,adam,0.9781783819198608,0.9764188528060913,-0.0017595291137695312

@@ -1,1 +1,0 @@
-trial,latent_dim,conv_filters,dense_units,lr,num_layers,best_val_acc,best_val_recon_loss,best_val_loss,epochs_run
